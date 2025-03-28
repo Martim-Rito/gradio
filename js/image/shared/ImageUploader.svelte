@@ -46,20 +46,27 @@
 	export let webcam_constraints: { [key: string]: any } | undefined = undefined;
 
 	async function handle_upload({
-		detail
-	}: CustomEvent<FileData>): Promise<void> {
+		 detail
+		 }: CustomEvent<FileData>): Promise<void> {
 		if (!streaming) {
+			let new_file: FileData | Base64File;
 			if (detail.path?.toLowerCase().endsWith(".svg") && detail.url) {
 				const response = await fetch(detail.url);
 				const svgContent = await response.text();
-				value = {
+				new_file = {
 					...detail,
 					url: `data:image/svg+xml,${encodeURIComponent(svgContent)}`
 				};
 			} else {
-				value = detail;
+				new_file = detail;
 			}
+
+			value = null;
+			await tick();
+
+			value = new_file;
 			dispatch("upload");
+			dispatch("change");
 		}
 	}
 
@@ -86,8 +93,10 @@
 		]);
 
 		if (event === "change" || event === "upload") {
-			value = f?.[0] || null;
+			let new_val = f?.[0] || null;
+			value = null;
 			await tick();
+			value = new_val;
 			dispatch("change");
 		}
 		pending = false;
@@ -134,6 +143,40 @@
 	}
 
 	let image_container: HTMLElement;
+
+	function on_drag_over(evt: DragEvent) {
+		evt.preventDefault();
+		evt.stopPropagation();
+		if (evt.dataTransfer) {
+			evt.dataTransfer.dropEffect = "copy";
+		}
+		dragging = true;
+	}
+
+	function on_drag_leave(evt: DragEvent) {
+		evt.preventDefault();
+		evt.stopPropagation();
+		dragging = false;
+	}
+
+	async function on_drop(evt: DragEvent) {
+		evt.preventDefault();
+		evt.stopPropagation();
+		
+		dragging = false;
+		
+
+		if (value) {
+			handle_clear();
+			await tick();
+		}
+
+		
+		active_source = "upload";
+		await tick();
+		
+		upload_input.loadFilesFromDrop(evt);
+	}
 </script>
 
 <BlockLabel {show_label} Icon={ImageIcon} label={label || "Image"} />
@@ -155,13 +198,17 @@
 			/>
 		{/if}
 	</IconButtonWrapper>
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		class="upload-container"
 		class:reduced-height={sources.length > 1}
 		style:width={value ? "auto" : "100%"}
+		on:dragover={on_drag_over}
+		on:dragleave={on_drag_leave}
+		on:drop={on_drop}
 	>
 		<Upload
-			hidden={value !== null || active_source === "webcam"}
+			hidden={value !== null || active_source === "webcam"} 
 			bind:this={upload_input}
 			bind:uploading
 			bind:dragging
@@ -170,7 +217,7 @@
 			on:error
 			{root}
 			{max_file_size}
-			disable_click={!sources.includes("upload") || value !== null}
+			disable_click={!sources.includes("upload") || value !== null} 
 			{upload}
 			{stream_handler}
 			aria_label={i18n("image.drop_to_upload")}
